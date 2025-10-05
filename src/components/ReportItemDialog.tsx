@@ -75,18 +75,34 @@ export const ReportItemDialog = ({ open, onOpenChange, type, onSuccess }: Report
         imageUrl = publicUrl;
       }
 
-      const { error } = await supabase.from('items').insert({
-        user_id: user.id,
-        type,
-        title,
-        description,
-        category,
-        location,
-        contact_info: contactInfo,
-        image_url: imageUrl,
-      });
+      const { data: inserted, error } = await supabase
+        .from('items')
+        .insert({
+          user_id: user.id,
+          type,
+          title,
+          description,
+          category,
+          location,
+          contact_info: contactInfo,
+          image_url: imageUrl,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // If this is a found item, trigger notifications for matching lost items via Edge Function
+      if (type === 'found' && inserted?.id) {
+        try {
+          await supabase.functions.invoke('notify-matches', {
+            body: { foundItemId: inserted.id },
+          });
+        } catch (invokeErr) {
+          // Non-blocking: log and continue
+          console.error('Failed to invoke notify-matches function', invokeErr);
+        }
+      }
 
       toast.success(`Item reported as ${type} successfully!`);
       onSuccess();
